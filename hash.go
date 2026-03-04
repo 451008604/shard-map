@@ -1,4 +1,4 @@
-package sharded_map
+package shardmap
 
 import (
 	"fmt"

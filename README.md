@@ -22,11 +22,11 @@ package main
 
 import (
     "fmt"
-    sharded_map "github.com/451008604/sharded-map"
+    "github.com/451008604/sharded-map"
 )
 
 func main() {
-    m := sharded_map.NewShardedMap[string, int]()
+    m := shardmap.NewShardedMap[string, int]()
 
     // 写入
     m.Set("foo", 42)

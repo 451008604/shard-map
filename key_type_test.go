@@ -1,5 +1,5 @@
 // key_type_test.go
-package sharded_map
+package shardmap
 
 import "testing"
 

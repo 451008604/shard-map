@@ -1,5 +1,5 @@
 // large_concurrency_test.go
-package sharded_map
+package shardmap
 
 import (
 	"sync"
