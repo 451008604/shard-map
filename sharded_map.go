@@ -1,17 +1,25 @@
 package shardedmap
 
-import (
-	"fmt"
-	"hash/fnv"
-	"sync"
+import "sync"
+
+const (
+	shardCount = 32
+	shardMask  = shardCount - 1
 )
 
-const shardCount = 32
+// 编译期断言：shardCount 必须为 2 的幂。
+var _ [0]struct{} = [shardCount & (shardCount - 1)]struct{}{}
 
-// Shard 包含一个读写锁和内部 map。
+// shard 包含一个读写锁和内部 map。
 type shard[K comparable, V any] struct {
 	sync.RWMutex
 	m map[K]V
+}
+
+// entry 用于 Range 快照分片数据。
+type entry[K comparable, V any] struct {
+	key   K
+	value V
 }
 
 // ShardedMap 为一个拥有 32 个分片的并发安全 map。
@@ -32,19 +40,9 @@ func New[K comparable, V any]() *ShardedMap[K, V] {
 	return sm
 }
 
-// fnvHash 计算键的 FNV-1a 32 位哈希值。
-func fnvHash[K comparable](key K) uint32 {
-	h := fnv.New32a()
-	// 采用 fmt.Sprintf 将任意可比较类型转为字符串，再写入哈希。
-	// 对于 string、int 等基本类型效果良好。
-	_, _ = fmt.Fprintf(h, "%v", key)
-	return h.Sum32()
-}
-
-// getShard 返回键所在的分片索引（0~31）。
+// getShard 返回键所在的分片（0~31）。
 func (sm *ShardedMap[K, V]) getShard(key K) *shard[K, V] {
-	idx := fnvHash(key) % shardCount
-	return sm.shards[idx]
+	return sm.shards[fnvHash(key)&shardMask]
 }
 
 // Set 将键值对写入对应分片，使用写锁保证互斥。
@@ -89,15 +87,13 @@ func (sm *ShardedMap[K, V]) Len() int {
 func (sm *ShardedMap[K, V]) Range(fn func(key K, value V) bool) {
 	for _, s := range sm.shards {
 		s.RLock()
-		keys := make([]K, 0, len(s.m))
-		vals := make([]V, 0, len(s.m))
+		entries := make([]entry[K, V], 0, len(s.m))
 		for k, v := range s.m {
-			keys = append(keys, k)
-			vals = append(vals, v)
+			entries = append(entries, entry[K, V]{key: k, value: v})
 		}
 		s.RUnlock()
-		for i, k := range keys {
-			if !fn(k, vals[i]) {
+		for _, e := range entries {
+			if !fn(e.key, e.value) {
 				return
 			}
 		}
