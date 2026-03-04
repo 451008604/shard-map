@@ -2,7 +2,9 @@ package shardedmap
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -104,86 +106,107 @@ func BenchmarkMutexMap_Delete(b *testing.B) {
 	}
 }
 
-// ─── 并发基准 ───
+// ─── 并发度梯度基准 ───
+// 通过设置不同的 GOMAXPROCS 值模拟不同并发度，
+// 展示随并发度增长，分片锁相比单锁的扩展性优势。
 
-func BenchmarkShardedMap_ConcurrentSet(b *testing.B) {
-	m := New[int, int]()
+var goroutineCounts = []int{1, 4, 16, 64, 256, 1024}
+
+// benchConcurrent 通用并发测试框架。
+// op 为每个 goroutine 执行的操作，接收全局递增 ID 作为参数。
+func benchConcurrent(b *testing.B, goroutines int, op func(id int)) {
+	b.SetParallelism(goroutines / runtime.GOMAXPROCS(0))
+	if goroutines/runtime.GOMAXPROCS(0) < 1 {
+		b.SetParallelism(1)
+	}
 	b.ResetTimer()
+	var counter atomic.Int64
 	b.RunParallel(func(pb *testing.PB) {
-		i := 0
 		for pb.Next() {
-			m.Set(i, i)
-			i++
+			id := int(counter.Add(1))
+			op(id)
 		}
 	})
 }
 
-func BenchmarkMutexMap_ConcurrentSet(b *testing.B) {
-	m := newMutexMap[int, int]()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			m.Set(i, i)
-			i++
-		}
-	})
+// ─── 并发写入梯度 ───
+
+func BenchmarkConcurrentWrite_ShardedMap(b *testing.B) {
+	for _, g := range goroutineCounts {
+		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
+			m := New[int, int]()
+			benchConcurrent(b, g, func(id int) {
+				m.Set(id%10000, id)
+			})
+		})
+	}
 }
 
-func BenchmarkShardedMap_ConcurrentGet(b *testing.B) {
-	m := fillSharded(10000)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			m.Get(i % 10000)
-			i++
-		}
-	})
+func BenchmarkConcurrentWrite_MutexMap(b *testing.B) {
+	for _, g := range goroutineCounts {
+		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
+			m := newMutexMap[int, int]()
+			benchConcurrent(b, g, func(id int) {
+				m.Set(id%10000, id)
+			})
+		})
+	}
 }
 
-func BenchmarkMutexMap_ConcurrentGet(b *testing.B) {
-	m := fillMutex(10000)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			m.Get(i % 10000)
-			i++
-		}
-	})
+// ─── 并发读取梯度 ───
+
+func BenchmarkConcurrentRead_ShardedMap(b *testing.B) {
+	for _, g := range goroutineCounts {
+		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
+			m := fillSharded(10000)
+			benchConcurrent(b, g, func(id int) {
+				m.Get(id % 10000)
+			})
+		})
+	}
 }
 
-func BenchmarkShardedMap_ConcurrentMixed(b *testing.B) {
-	m := fillSharded(10000)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			if i%10 < 8 {
-				m.Get(i % 10000)
-			} else {
-				m.Set(i%10000, i)
-			}
-			i++
-		}
-	})
+func BenchmarkConcurrentRead_MutexMap(b *testing.B) {
+	for _, g := range goroutineCounts {
+		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
+			m := fillMutex(10000)
+			benchConcurrent(b, g, func(id int) {
+				m.Get(id % 10000)
+			})
+		})
+	}
 }
 
-func BenchmarkMutexMap_ConcurrentMixed(b *testing.B) {
-	m := fillMutex(10000)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			if i%10 < 8 {
-				m.Get(i % 10000)
-			} else {
-				m.Set(i%10000, i)
-			}
-			i++
-		}
-	})
+// ─── 不同读写比例基准（固定高并发 256 goroutines）───
+
+func BenchmarkMixedRatio_ShardedMap(b *testing.B) {
+	for _, writePct := range []int{0, 10, 50, 100} {
+		b.Run(fmt.Sprintf("write=%d%%", writePct), func(b *testing.B) {
+			m := fillSharded(10000)
+			benchConcurrent(b, 256, func(id int) {
+				if id%100 < writePct {
+					m.Set(id%10000, id)
+				} else {
+					m.Get(id % 10000)
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkMixedRatio_MutexMap(b *testing.B) {
+	for _, writePct := range []int{0, 10, 50, 100} {
+		b.Run(fmt.Sprintf("write=%d%%", writePct), func(b *testing.B) {
+			m := fillMutex(10000)
+			benchConcurrent(b, 256, func(id int) {
+				if id%100 < writePct {
+					m.Set(id%10000, id)
+				} else {
+					m.Get(id % 10000)
+				}
+			})
+		})
+	}
 }
 
 // ─── Range 基准 ───

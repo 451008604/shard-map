@@ -81,7 +81,7 @@ go test -v -race ./...
 测试环境：Intel Core i7-10700K @ 3.80GHz, 16 线程, Go 1.22, linux/amd64
 
 ```bash
-go test -bench=. -benchmem -count=3 ./...
+go test -bench=. -benchmem ./...
 ```
 
 ### 单线程性能
@@ -90,35 +90,60 @@ ShardedMap 与单锁 `sync.RWMutex` Map 对比：
 
 | 操作 | ShardedMap | MutexMap | 说明 |
 |------|-----------|----------|------|
-| Set | 263 ns/op, 0 allocs | 224 ns/op, 0 allocs | 分片哈希计算略有开销，差距很小 |
-| Get | 37 ns/op, 0 allocs | 27 ns/op, 0 allocs | 单线程无锁竞争，差距较小 |
-| Delete | 185 ns/op, 0 allocs | 170 ns/op, 0 allocs | 基本持平 |
+| Set | 372 ns/op, 0 allocs | 269 ns/op, 0 allocs | 单线程下分片哈希有额外计算开销 |
+| Get | 38 ns/op, 0 allocs | 29 ns/op, 0 allocs | 单线程无锁竞争，差距较小 |
+| Delete | 287 ns/op, 0 allocs | 223 ns/op, 0 allocs | 同上 |
 
-> 通过内联 FNV-1a 类型分发哈希，单线程下已实现零分配，与单锁方案差距大幅缩小。
+> 单线程下 ShardedMap 因 FNV-1a 分片哈希有额外开销，但已实现零堆分配。分片锁的设计目标不是优化单线程，而是并发扩展性。
 
-### 并发性能（16 线程）
+### 并发写入 — 随并发度扩展（goroutine 梯度）
 
-| 操作 | ShardedMap | MutexMap | 倍率 |
-|------|-----------|----------|------|
-| 并发 Set | **50 ns/op** | 199 ns/op | **4.0x** |
-| 并发 Get | **9 ns/op** | 35 ns/op | **3.9x** |
-| 并发混合读写 (80%读+20%写) | **42 ns/op** | 37 ns/op | 1.1x |
+| goroutines | ShardedMap | MutexMap | 倍率 |
+|------------|-----------|----------|------|
+| 1 | 50 ns/op | 197 ns/op | **3.9x** |
+| 4 | 48 ns/op | 202 ns/op | **4.2x** |
+| 16 | 52 ns/op | 199 ns/op | **3.8x** |
+| 64 | 41 ns/op | 229 ns/op | **5.6x** |
+| 256 | 36 ns/op | 226 ns/op | **6.3x** |
+| 1024 | 35 ns/op | 215 ns/op | **6.1x** |
 
-> **并发场景全面优于单锁方案**。并发 Set 吞吐量达到单锁的 4 倍，并发 Get 提升 3.9 倍。混合读写场景下也已基本持平。
+> ShardedMap 写入延迟随并发度增加反而下降（50→35 ns），而 MutexMap 从 197 上升到 215+ ns。**并发度越高，分片锁优势越明显**，在 256 goroutines 时达到 6.3 倍。
+
+### 并发读取 — 随并发度扩展
+
+| goroutines | ShardedMap | MutexMap | 倍率 |
+|------------|-----------|----------|------|
+| 1 | 23 ns/op | 42 ns/op | **1.8x** |
+| 16 | 24 ns/op | 39 ns/op | **1.6x** |
+| 256 | 25 ns/op | 44 ns/op | **1.8x** |
+| 1024 | 26 ns/op | 44 ns/op | **1.7x** |
+
+> 读取场景下 `RWMutex` 的读锁本身允许并发，所以单锁方案不会严重退化。ShardedMap 通过减少 CPU 缓存行争用（32 个独立锁 vs 1 个锁的 reader count 原子操作），稳定保持 1.7~1.8 倍优势。
+
+### 不同读写比例（固定 256 goroutines 高并发）
+
+| 写入占比 | ShardedMap | MutexMap | 倍率 |
+|----------|-----------|----------|------|
+| 0%（纯读） | 25 ns/op | 48 ns/op | **1.9x** |
+| 10% | 44 ns/op | 54 ns/op | **1.2x** |
+| 50% | 46 ns/op | 71 ns/op | **1.5x** |
+| 100%（纯写） | 32 ns/op | 236 ns/op | **7.4x** |
+
+> **写入占比越高，分片锁优势越大**。纯写场景下 ShardedMap 达到 7.4 倍吞吐量。即使在纯读场景，也有 1.9 倍优势。
 
 ### Range 遍历
 
 | 数据规模 | 耗时 | 内存分配 |
 |----------|------|----------|
-| 100 条 | 3,166 ns/op | 1,600 B/op, 32 allocs |
-| 1,000 条 | 20,072 ns/op | 16,384 B/op, 32 allocs |
-| 10,000 条 | 173,123 ns/op | 172,032 B/op, 32 allocs |
+| 100 条 | 3,204 ns/op | 1,600 B/op, 32 allocs |
+| 1,000 条 | 20,044 ns/op | 16,384 B/op, 32 allocs |
+| 10,000 条 | 173,998 ns/op | 172,032 B/op, 32 allocs |
 
 > Range 每次遍历固定 32 次分配（每个分片 1 个 entry slice），内存随数据量线性增长。
 
 ### 适用场景
 
-- **推荐使用**：高并发读写场景（如缓存、计数器、会话存储）
+- **推荐使用**：高并发读写场景，尤其是写入密集型（缓存、计数器、会话存储）
 - **无需使用**：单线程或极低并发场景，标准 `sync.RWMutex` 即可
 
 ## 许可证
