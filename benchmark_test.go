@@ -40,8 +40,8 @@ func (mm *mutexMap[K, V]) Delete(key K) {
 
 // ─── 辅助：预填充 ───
 
-func fillSharded(n int) *ShardedMap[int, int] {
-	m := NewShardedMap[int, int]()
+func fillShard(n int) *ShardMap[int, int] {
+	m := NewShardMap[int, int]()
 	for i := 0; i < n; i++ {
 		m.Set(i, i)
 	}
@@ -58,8 +58,8 @@ func fillMutex(n int) *mutexMap[int, int] {
 
 // ─── 单线程基准 ───
 
-func BenchmarkShardedMap_Set(b *testing.B) {
-	m := NewShardedMap[int, int]()
+func BenchmarkShardMap_Set(b *testing.B) {
+	m := NewShardMap[int, int]()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.Set(i, i)
@@ -74,8 +74,8 @@ func BenchmarkMutexMap_Set(b *testing.B) {
 	}
 }
 
-func BenchmarkShardedMap_Get(b *testing.B) {
-	m := fillSharded(10000)
+func BenchmarkShardMap_Get(b *testing.B) {
+	m := fillShard(10000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.Get(i % 10000)
@@ -90,8 +90,8 @@ func BenchmarkMutexMap_Get(b *testing.B) {
 	}
 }
 
-func BenchmarkShardedMap_Delete(b *testing.B) {
-	m := fillSharded(b.N)
+func BenchmarkShardMap_Delete(b *testing.B) {
+	m := fillShard(b.N)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.Delete(i)
@@ -131,10 +131,10 @@ func benchConcurrent(b *testing.B, goroutines int, op func(id int)) {
 
 // ─── 并发写入梯度 ───
 
-func BenchmarkConcurrentWrite_ShardedMap(b *testing.B) {
+func BenchmarkConcurrentWrite_ShardMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
-			m := NewShardedMap[int, int]()
+			m := NewShardMap[int, int]()
 			benchConcurrent(b, g, func(id int) {
 				m.Set(id%10000, id)
 			})
@@ -155,10 +155,10 @@ func BenchmarkConcurrentWrite_MutexMap(b *testing.B) {
 
 // ─── 并发读取梯度 ───
 
-func BenchmarkConcurrentRead_ShardedMap(b *testing.B) {
+func BenchmarkConcurrentRead_ShardMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
-			m := fillSharded(10000)
+			m := fillShard(10000)
 			benchConcurrent(b, g, func(id int) {
 				m.Get(id % 10000)
 			})
@@ -179,10 +179,10 @@ func BenchmarkConcurrentRead_MutexMap(b *testing.B) {
 
 // ─── 不同读写比例基准（固定高并发 256 goroutines）───
 
-func BenchmarkMixedRatio_ShardedMap(b *testing.B) {
+func BenchmarkMixedRatio_ShardMap(b *testing.B) {
 	for _, writePct := range []int{0, 10, 50, 100} {
 		b.Run(fmt.Sprintf("write=%d%%", writePct), func(b *testing.B) {
-			m := fillSharded(10000)
+			m := fillShard(10000)
 			benchConcurrent(b, 256, func(id int) {
 				if id%100 < writePct {
 					m.Set(id%10000, id)
@@ -211,10 +211,10 @@ func BenchmarkMixedRatio_MutexMap(b *testing.B) {
 
 // ─── Range 基准 ───
 
-func BenchmarkShardedMap_Range(b *testing.B) {
+func BenchmarkShardMap_Range(b *testing.B) {
 	for _, size := range []int{100, 1000, 10000} {
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
-			m := fillSharded(size)
+			m := fillShard(size)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				m.Range(func(k, v int) bool { return true })

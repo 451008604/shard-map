@@ -8,7 +8,7 @@ func testKeyType[K comparable, V comparable](t *testing.T, keys []K, values []V)
     if len(keys) != len(values) {
         t.Fatalf("keys and values length mismatch")
     }
-    m := NewShardedMap[K, V]()
+    m := NewShardMap[K, V]()
     // 写入
     for i, k := range keys {
         m.Set(k, values[i])

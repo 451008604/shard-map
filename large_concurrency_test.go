@@ -16,7 +16,7 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 	)
 
 	totalKeys := numWriters * keysPerWriter
-	m := NewShardedMap[int, int]()
+	m := NewShardMap[int, int]()
 
 	var wg sync.WaitGroup
 
