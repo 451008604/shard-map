@@ -1,4 +1,4 @@
-# sharded-map
+# shard-map
 
 一个基于 Go 泛型的高性能并发安全分片 Map 实现。
 
