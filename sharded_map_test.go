@@ -1,4 +1,4 @@
-package shardedmap
+package sharded_map
 
 import (
 	"sync"
@@ -6,7 +6,7 @@ import (
 )
 
 func TestSetGet(t *testing.T) {
-	m := New[string, int]()
+	m := NewShardedMap[string, int]()
 	m.Set("foo", 42)
 	if v, ok := m.Get("foo"); !ok || v != 42 {
 		t.Fatalf("expected value 42, got %v, ok=%v", v, ok)
@@ -14,7 +14,7 @@ func TestSetGet(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	m := New[int, bool]()
+	m := NewShardedMap[int, bool]()
 	m.Set(1, true)
 	m.Delete(1)
 	if _, ok := m.Get(1); ok {
@@ -23,7 +23,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestLenAndRange(t *testing.T) {
-	m := New[int, string]()
+	m := NewShardedMap[int, string]()
 	m.Set(1, "a")
 	m.Set(2, "b")
 	m.Set(3, "c")
@@ -41,7 +41,7 @@ func TestLenAndRange(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	m := New[int, int]()
+	m := NewShardedMap[int, int]()
 	var wg sync.WaitGroup
 	// launch 10 writers
 	for i := 0; i < 10; i++ {

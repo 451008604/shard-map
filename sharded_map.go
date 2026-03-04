@@ -1,4 +1,4 @@
-package shardedmap
+package sharded_map
 
 import "sync"
 
@@ -29,8 +29,8 @@ type ShardedMap[K comparable, V any] struct {
 	shards [shardCount]*shard[K, V]
 }
 
-// New 创建一个空的 ShardedMap 实例。
-func New[K comparable, V any]() *ShardedMap[K, V] {
+// NewShardedMap 创建一个空的 ShardedMap 实例。
+func NewShardedMap[K comparable, V any]() *ShardedMap[K, V] {
 	sm := &ShardedMap[K, V]{}
 	for i := range shardCount {
 		sm.shards[i] = &shard[K, V]{

@@ -1,4 +1,4 @@
-# shardedmap
+# sharded-map
 
 一个基于 Go 泛型的高性能并发安全分片 Map 实现。
 
@@ -12,7 +12,7 @@
 ## 安装
 
 ```bash
-go get shardedmap
+go get github.com/451008604/sharded-map
 ```
 
 ## 快速开始
@@ -22,11 +22,11 @@ package main
 
 import (
     "fmt"
-    "shardedmap"
+    sharded_map "github.com/451008604/sharded-map"
 )
 
 func main() {
-    m := shardedmap.New[string, int]()
+    m := sharded_map.NewShardedMap[string, int]()
 
     // 写入
     m.Set("foo", 42)
@@ -55,7 +55,7 @@ func main() {
 
 | 方法 | 说明 |
 |------|------|
-| `New[K, V]()` | 创建一个空的 `ShardedMap` 实例 |
+| `NewShardedMap[K, V]()` | 创建一个空的 `ShardedMap` 实例 |
 | `Set(key, value)` | 写入或更新键值对 |
 | `Get(key)` | 读取键对应的值，返回 `(value, ok)` |
 | `Delete(key)` | 删除指定键 |

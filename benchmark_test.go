@@ -1,4 +1,4 @@
-package shardedmap
+package sharded_map
 
 import (
 	"fmt"
@@ -41,7 +41,7 @@ func (mm *mutexMap[K, V]) Delete(key K) {
 // ─── 辅助：预填充 ───
 
 func fillSharded(n int) *ShardedMap[int, int] {
-	m := New[int, int]()
+	m := NewShardedMap[int, int]()
 	for i := 0; i < n; i++ {
 		m.Set(i, i)
 	}
@@ -59,7 +59,7 @@ func fillMutex(n int) *mutexMap[int, int] {
 // ─── 单线程基准 ───
 
 func BenchmarkShardedMap_Set(b *testing.B) {
-	m := New[int, int]()
+	m := NewShardedMap[int, int]()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.Set(i, i)
@@ -134,7 +134,7 @@ func benchConcurrent(b *testing.B, goroutines int, op func(id int)) {
 func BenchmarkConcurrentWrite_ShardedMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
-			m := New[int, int]()
+			m := NewShardedMap[int, int]()
 			benchConcurrent(b, g, func(id int) {
 				m.Set(id%10000, id)
 			})

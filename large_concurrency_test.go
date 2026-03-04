@@ -1,5 +1,5 @@
 // large_concurrency_test.go
-package shardedmap
+package sharded_map
 
 import (
 	"sync"
@@ -16,7 +16,7 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 	)
 
 	totalKeys := numWriters * keysPerWriter
-	m := New[int, int]()
+	m := NewShardedMap[int, int]()
 
 	var wg sync.WaitGroup
 
