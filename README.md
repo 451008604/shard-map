@@ -12,7 +12,7 @@
 ## 安装
 
 ```bash
-go get github.com/451008604/shard-map/v2
+go get github.com/451008604/shard-map
 ```
 
 ## 快速开始
@@ -22,7 +22,7 @@ package main
 
 import (
     "fmt"
-    "github.com/451008604/shard-map/v2"
+    "github.com/451008604/shard-map"
 )
 
 func main() {
