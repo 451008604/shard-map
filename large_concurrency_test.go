@@ -22,11 +22,11 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 
 	// ---------- 写入 ----------
 	wg.Add(numWriters)
-	for w := range numWriters {
+	for w := 0; w < numWriters; w++ {
 		go func(writerID int) {
 			defer wg.Done()
 			base := writerID * keysPerWriter
-			for i := range keysPerWriter {
+			for i := 0; i < keysPerWriter; i++ {
 				k := base + i
 				m.Set(k, k*2)
 			}
@@ -35,12 +35,12 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 
 	// ---------- 读取 ----------
 	wg.Add(numReaders)
-	for range numReaders {
+	for i := 0; i < numReaders; i++ {
 		go func() {
 			defer wg.Done()
 			// 顺序遍历所有键，覆盖全部键
-			for i := range totalKeys {
-				_, _ = m.Get(i)
+			for j := 0; j < totalKeys; j++ {
+				_, _ = m.Get(j)
 			}
 		}()
 	}
@@ -48,7 +48,7 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 	// ---------- 遍历 ----------
 	var visited int64
 	wg.Add(numRangeRuns)
-	for range numRangeRuns {
+	for i := 0; i < numRangeRuns; i++ {
 		go func() {
 			defer wg.Done()
 			m.Range(func(k, v int) bool {
