@@ -188,31 +188,6 @@ ShardMap 与单锁 `sync.RWMutex` Map 对比：
 - **推荐使用**：需要原子复合操作的场景（`LoadOrStore`、`Compute`）
 - **无需使用**：单线程或极低并发场景，标准 `sync.RWMutex` 即可
 
-## 优化历史
-
-### v2.0 — 性能优化
-
-1. **哈希函数重写**
-   - 整数键：wyhash 风格乘法混合（10x 提速）
-   - 字符串键：wyhash（3x 提速）
-   - 其他类型：unsafe 原始字节哈希（50x 提速，消除 `fmt.Fprintf` 分配）
-
-2. **原子操作**
-   - 新增 `LoadOrStore`、`LoadOrCompute`、`Compute`、`Swap`
-   - 使用先读后写模式避免不必要的写锁竞争
-
-3. **无锁 `Len()`**
-   - 每个分片维护 `atomic.Int64` 计数器
-   - `Len()` 从 32 次锁获取变为 32 次原子加载
-
-4. **零分配 `Range`**
-   - 使用 `sync.Pool` 复用 entry slice
-   - 消除每次遍历的 32 次内存分配
-
-5. **缓存行对齐**
-   - 每个分片结构体填充至 64 字节
-   - 避免高并发下的伪共享
-
 ## 许可证
 
 MIT
