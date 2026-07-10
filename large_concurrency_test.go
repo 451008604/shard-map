@@ -2,6 +2,7 @@
 package shardmap
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -47,6 +48,7 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 
 	// ---------- 遍历 ----------
 	var visited int64
+	errs := make(chan error, numRangeRuns)
 	wg.Add(numRangeRuns)
 	for i := 0; i < numRangeRuns; i++ {
 		go func() {
@@ -54,7 +56,8 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 			m.Range(func(k, v int) bool {
 				atomic.AddInt64(&visited, 1)
 				if v != k*2 {
-					t.Fatalf("unexpected value for key %d: got %d, want %d", k, v, k*2)
+					errs <- fmt.Errorf("unexpected value for key %d: got %d, want %d", k, v, k*2)
+					return false
 				}
 				return true
 			})
@@ -62,6 +65,10 @@ func TestLargeConcurrentReadWriteAndRange(t *testing.T) {
 	}
 
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
 
 	if got := m.Len(); got != totalKeys {
 		t.Fatalf("length mismatch: want %d, got %d", totalKeys, got)
