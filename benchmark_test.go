@@ -2,9 +2,7 @@ package shardmap
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -112,21 +110,21 @@ func BenchmarkMutexMap_Delete(b *testing.B) {
 
 var goroutineCounts = []int{1, 4, 16, 64, 256, 1024}
 
-// benchConcurrent 通用并发测试框架。
-// op 为每个 goroutine 执行的操作，接收全局递增 ID 作为参数。
-func benchConcurrent(b *testing.B, goroutines int, op func(id int)) {
-	b.SetParallelism(goroutines / runtime.GOMAXPROCS(0))
-	if goroutines/runtime.GOMAXPROCS(0) < 1 {
-		b.SetParallelism(1)
-	}
+// benchConcurrent 使用固定数量的 worker 平分 b.N 次操作。
+// worker 和 iteration 可用于生成无需共享原子计数器的确定性键序列。
+func benchConcurrent(b *testing.B, workers int, op func(worker, iteration int)) {
 	b.ResetTimer()
-	var counter atomic.Int64
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			id := int(counter.Add(1))
-			op(id)
-		}
-	})
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for worker := 0; worker < workers; worker++ {
+		go func(worker int) {
+			defer wg.Done()
+			for iteration := worker; iteration < b.N; iteration += workers {
+				op(worker, iteration)
+			}
+		}(worker)
+	}
+	wg.Wait()
 }
 
 // ─── 并发写入梯度 ───
@@ -135,8 +133,8 @@ func BenchmarkConcurrentWrite_ShardMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
 			m := NewShardMap[int, int]()
-			benchConcurrent(b, g, func(id int) {
-				m.Set(id%10000, id)
+			benchConcurrent(b, g, func(worker, iteration int) {
+				m.Set(iteration%10000, iteration)
 			})
 		})
 	}
@@ -146,8 +144,8 @@ func BenchmarkConcurrentWrite_MutexMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
 			m := newMutexMap[int, int]()
-			benchConcurrent(b, g, func(id int) {
-				m.Set(id%10000, id)
+			benchConcurrent(b, g, func(worker, iteration int) {
+				m.Set(iteration%10000, iteration)
 			})
 		})
 	}
@@ -159,8 +157,8 @@ func BenchmarkConcurrentRead_ShardMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
 			m := fillShard(10000)
-			benchConcurrent(b, g, func(id int) {
-				m.Get(id % 10000)
+			benchConcurrent(b, g, func(worker, iteration int) {
+				m.Get(iteration % 10000)
 			})
 		})
 	}
@@ -170,8 +168,8 @@ func BenchmarkConcurrentRead_MutexMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
 			m := fillMutex(10000)
-			benchConcurrent(b, g, func(id int) {
-				m.Get(id % 10000)
+			benchConcurrent(b, g, func(worker, iteration int) {
+				m.Get(iteration % 10000)
 			})
 		})
 	}
@@ -183,11 +181,11 @@ func BenchmarkMixedRatio_ShardMap(b *testing.B) {
 	for _, writePct := range []int{0, 10, 50, 100} {
 		b.Run(fmt.Sprintf("write=%d%%", writePct), func(b *testing.B) {
 			m := fillShard(10000)
-			benchConcurrent(b, 256, func(id int) {
-				if id%100 < writePct {
-					m.Set(id%10000, id)
+			benchConcurrent(b, 256, func(worker, iteration int) {
+				if iteration%100 < writePct {
+					m.Set(iteration%10000, iteration)
 				} else {
-					m.Get(id % 10000)
+					m.Get(iteration % 10000)
 				}
 			})
 		})
@@ -198,11 +196,11 @@ func BenchmarkMixedRatio_MutexMap(b *testing.B) {
 	for _, writePct := range []int{0, 10, 50, 100} {
 		b.Run(fmt.Sprintf("write=%d%%", writePct), func(b *testing.B) {
 			m := fillMutex(10000)
-			benchConcurrent(b, 256, func(id int) {
-				if id%100 < writePct {
-					m.Set(id%10000, id)
+			benchConcurrent(b, 256, func(worker, iteration int) {
+				if iteration%100 < writePct {
+					m.Set(iteration%10000, iteration)
 				} else {
-					m.Get(id % 10000)
+					m.Get(iteration % 10000)
 				}
 			})
 		})

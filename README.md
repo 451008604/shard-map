@@ -69,10 +69,55 @@ go test ./...
 go test -race ./...
 go vet ./...
 go test -run '^$' -fuzz '^FuzzShardMapEqualStringsUseSameShard$' -fuzztime=20s
+go test -run '^$' -fuzz '^FuzzShardMapOperations$' -fuzztime=20s
 go test -bench=. -benchmem ./...
 ```
 
 基准结果依赖 Go 版本、CPU、并发度和键分布。修改哈希或锁策略后，请重新测量，不要沿用历史数据。
+
+### Docker 基准结果
+
+以下结果采集于 2026-07-20，环境为 Go 1.21.13、Linux/arm64、4 vCPU、`GOMAXPROCS=4`。镜像为
+`golang:1.21.13-bookworm`（digest `sha256:c6a5b9308b3f3095e8fde83c8bf4d68bd101fce606c1a0a1394522542509dda9`）。
+每个基准运行 5 次、每次至少 500 ms；表中为 `ns/op` 的中位数，越低越好。
+
+复现命令：
+
+```bash
+docker run --rm --cpus=4 -e GOMAXPROCS=4 \
+  -v "$PWD:/src:ro" -w /src \
+  golang@sha256:c6a5b9308b3f3095e8fde83c8bf4d68bd101fce606c1a0a1394522542509dda9 \
+  go test -run '^$' -bench=. -benchmem -benchtime=500ms -count=5 ./...
+```
+
+单线程操作：
+
+| 操作 | ShardMap | 单锁 map |
+| --- | ---: | ---: |
+| Set | 229.2 | 171.6 |
+| Get | 28.45 | 21.70 |
+| Delete | 148.7 | 134.3 |
+
+固定 worker 数的并发操作：
+
+| Worker | ShardMap 写 | 单锁 map 写 | 写入加速比 | ShardMap 读 | 单锁 map 读 | 读取加速比 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 41.49 | 29.33 | 0.71x | 31.65 | 23.86 | 0.75x |
+| 4 | 55.00 | 85.83 | 1.56x | 24.69 | 88.75 | 3.59x |
+| 16 | 59.78 | 119.1 | 1.99x | 25.75 | 85.73 | 3.33x |
+| 64 | 69.48 | 158.7 | 2.28x | 25.95 | 84.31 | 3.25x |
+| 256 | 70.69 | 155.3 | 2.20x | 28.19 | 81.70 | 2.90x |
+| 1024 | 70.11 | 271.3 | 3.87x | 25.79 | 88.21 | 3.42x |
+
+`Range` 遍历：
+
+| 键数量 | ns/op | allocs/op |
+| ---: | ---: | ---: |
+| 100 | 2,176 | 0 |
+| 1,000 | 13,301 | 0 |
+| 10,000 | 112,513 | 0 |
+
+加速比按“单锁 map / ShardMap”计算，大于 1 表示 ShardMap 更快。这些数字仅代表上述容器资源和当前测试键分布；单线程路径会承担分片选择和长度计数成本，并发收益会随 CPU、调度、读写比例及热点键分布变化。
 
 ## 许可证
 
