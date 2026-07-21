@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// ─── 对照组：单锁 map ───
+// ─── 对照组：单锁 map 与标准库 sync.Map ───
 
 type mutexMap[K comparable, V any] struct {
 	sync.RWMutex
@@ -36,6 +36,27 @@ func (mm *mutexMap[K, V]) Delete(key K) {
 	mm.Unlock()
 }
 
+type syncMap[K comparable, V any] struct {
+	m sync.Map
+}
+
+func (sm *syncMap[K, V]) Set(key K, value V) {
+	sm.m.Store(key, value)
+}
+
+func (sm *syncMap[K, V]) Get(key K) (V, bool) {
+	value, ok := sm.m.Load(key)
+	if !ok {
+		var zero V
+		return zero, false
+	}
+	return value.(V), true
+}
+
+func (sm *syncMap[K, V]) Delete(key K) {
+	sm.m.Delete(key)
+}
+
 // ─── 辅助：预填充 ───
 
 func fillShard(n int) *ShardMap[int, int] {
@@ -48,6 +69,14 @@ func fillShard(n int) *ShardMap[int, int] {
 
 func fillMutex(n int) *mutexMap[int, int] {
 	m := newMutexMap[int, int]()
+	for i := 0; i < n; i++ {
+		m.Set(i, i)
+	}
+	return m
+}
+
+func fillSync(n int) *syncMap[int, int] {
+	m := &syncMap[int, int]{}
 	for i := 0; i < n; i++ {
 		m.Set(i, i)
 	}
@@ -72,6 +101,14 @@ func BenchmarkMutexMap_Set(b *testing.B) {
 	}
 }
 
+func BenchmarkSyncMap_Set(b *testing.B) {
+	m := &syncMap[int, int]{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Set(i, i)
+	}
+}
+
 func BenchmarkShardMap_Get(b *testing.B) {
 	m := fillShard(10000)
 	b.ResetTimer()
@@ -82,6 +119,14 @@ func BenchmarkShardMap_Get(b *testing.B) {
 
 func BenchmarkMutexMap_Get(b *testing.B) {
 	m := fillMutex(10000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Get(i % 10000)
+	}
+}
+
+func BenchmarkSyncMap_Get(b *testing.B) {
+	m := fillSync(10000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.Get(i % 10000)
@@ -104,9 +149,16 @@ func BenchmarkMutexMap_Delete(b *testing.B) {
 	}
 }
 
+func BenchmarkSyncMap_Delete(b *testing.B) {
+	m := fillSync(b.N)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Delete(i)
+	}
+}
+
 // ─── 并发度梯度基准 ───
-// 通过设置不同的 GOMAXPROCS 值模拟不同并发度，
-// 展示随并发度增长，分片锁相比单锁的扩展性优势。
+// 通过设置不同的 worker 数模拟不同并发度，观察各实现的扩展性。
 
 var goroutineCounts = []int{1, 4, 16, 64, 256, 1024}
 
@@ -151,6 +203,17 @@ func BenchmarkConcurrentWrite_MutexMap(b *testing.B) {
 	}
 }
 
+func BenchmarkConcurrentWrite_SyncMap(b *testing.B) {
+	for _, g := range goroutineCounts {
+		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
+			m := &syncMap[int, int]{}
+			benchConcurrent(b, g, func(worker, iteration int) {
+				m.Set(iteration%10000, iteration)
+			})
+		})
+	}
+}
+
 // ─── 并发读取梯度 ───
 
 func BenchmarkConcurrentRead_ShardMap(b *testing.B) {
@@ -168,6 +231,17 @@ func BenchmarkConcurrentRead_MutexMap(b *testing.B) {
 	for _, g := range goroutineCounts {
 		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
 			m := fillMutex(10000)
+			benchConcurrent(b, g, func(worker, iteration int) {
+				m.Get(iteration % 10000)
+			})
+		})
+	}
+}
+
+func BenchmarkConcurrentRead_SyncMap(b *testing.B) {
+	for _, g := range goroutineCounts {
+		b.Run(fmt.Sprintf("g=%d", g), func(b *testing.B) {
+			m := fillSync(10000)
 			benchConcurrent(b, g, func(worker, iteration int) {
 				m.Get(iteration % 10000)
 			})
@@ -207,6 +281,21 @@ func BenchmarkMixedRatio_MutexMap(b *testing.B) {
 	}
 }
 
+func BenchmarkMixedRatio_SyncMap(b *testing.B) {
+	for _, writePct := range []int{0, 10, 50, 100} {
+		b.Run(fmt.Sprintf("write=%d%%", writePct), func(b *testing.B) {
+			m := fillSync(10000)
+			benchConcurrent(b, 256, func(worker, iteration int) {
+				if iteration%100 < writePct {
+					m.Set(iteration%10000, iteration)
+				} else {
+					m.Get(iteration % 10000)
+				}
+			})
+		})
+	}
+}
+
 // ─── Range 基准 ───
 
 func BenchmarkShardMap_Range(b *testing.B) {
@@ -216,6 +305,18 @@ func BenchmarkShardMap_Range(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				m.Range(func(k, v int) bool { return true })
+			}
+		})
+	}
+}
+
+func BenchmarkSyncMap_Range(b *testing.B) {
+	for _, size := range []int{100, 1000, 10000} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			m := fillSync(size)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				m.m.Range(func(_, _ any) bool { return true })
 			}
 		})
 	}
